@@ -1,0 +1,28 @@
+# Django core
+django==4.2.11
+djangorestframework==3.15.1
+django-cors-headers==4.3.1
+python-dotenv==1.0.1
+psycopg2-binary>=2.9.12
+dj-database-url==2.1.0
+whitenoise==6.6.0
+gunicorn==21.2.0
+
+# Data processing
+pandas==2.2.1
+numpy==1.26.4
+haversine==2.8.1
+
+# LangChain + Gemini (from official docs: pip install langchain "langchain[google-genai]")
+langchain
+langchain-google-genai
+langchain-community
+
+# LangGraph (from official docs: pip install -U langgraph)
+langgraph
+
+# Vector store for RAG
+faiss-cpu==1.8.0
+
+# Google GenAI SDK (underlying dependency)
+google-generativeai

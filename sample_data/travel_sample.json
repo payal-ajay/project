@@ -1,0 +1,28 @@
+﻿[
+  {
+    "tripId": "T-2024-001",
+    "travelerName": "Sarah Chen",
+    "segments": [
+      {"type": "AIR", "origin_iata": "LHR", "destination_iata": "JFK", "departure_date": "2024-02-05", "class_of_service": "ECONOMY", "airline_code": "BA"},
+      {"type": "HOTEL", "hotel_name": "Marriott Times Square", "check_in": "2024-02-05", "check_out": "2024-02-08", "city": "New York"},
+      {"type": "AIR", "origin_iata": "JFK", "destination_iata": "LHR", "departure_date": "2024-02-08", "class_of_service": "ECONOMY", "airline_code": "BA"}
+    ]
+  },
+  {
+    "tripId": "T-2024-002",
+    "travelerName": "Raj Patel",
+    "segments": [
+      {"type": "AIR", "origin_iata": "BLR", "destination_iata": "DEL", "departure_date": "2024-02-12", "class_of_service": "BUSINESS", "airline_code": "AI"},
+      {"type": "HOTEL", "hotel_name": "Taj Palace Delhi", "check_in": "2024-02-12", "check_out": "2024-02-14", "city": "New Delhi"},
+      {"type": "GROUND", "mode": "TAXI", "date": "2024-02-14", "distance_km": 42}
+    ]
+  },
+  {
+    "tripId": "T-2024-003",
+    "travelerName": "Emma Wilson",
+    "segments": [
+      {"type": "AIR", "origin_iata": "LHR", "destination_iata": "DXB", "departure_date": "2024-03-01", "class_of_service": "BUSINESS", "airline_code": "EK"},
+      {"type": "HOTEL", "hotel_name": "Burj Al Arab", "check_in": "2024-03-01", "check_out": "2024-03-04", "city": "Dubai"}
+    ]
+  }
+]
