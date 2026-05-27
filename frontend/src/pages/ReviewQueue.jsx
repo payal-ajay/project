@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
 import { getEmissions, approveEmission, rejectEmission, getAuditLog } from '../api/client'
 
@@ -205,12 +206,20 @@ function DetailModal({ record, onClose, onApprove, onReject, loading }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ReviewQueue() {
+  const location = useLocation()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [selected, setSelected] = useState(null)
   const [filters, setFilters] = useState({ status: '', scope: '', source_type: '', suspicious: '' })
   const [toast, setToast] = useState(null)
+
+  // Clear state when component mounts (navigating to this page)
+  useEffect(() => {
+    setSelected(null)
+    setToast(null)
+    setFilters({ status: '', scope: '', source_type: '', suspicious: '' })
+  }, [location.pathname])
 
   function showToast(msg, type = 'success') {
     setToast({ msg, type })

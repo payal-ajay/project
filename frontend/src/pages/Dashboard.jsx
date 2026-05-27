@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { getEmissions } from '../api/client'
 import { AlertTriangle } from 'lucide-react'
@@ -12,6 +13,7 @@ function scopeLabel(s) {
 }
 
 export default function Dashboard() {
+  const location = useLocation()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -20,7 +22,7 @@ export default function Dashboard() {
       .then(d => setRecords(d.results || []))
       .catch(() => setRecords([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, [location.pathname])
 
   // Derived stats
   const total = records.length

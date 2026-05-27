@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Upload, FileText, Zap, Plane } from 'lucide-react'
 import { uploadFile } from '../api/client'
 
@@ -135,7 +136,13 @@ function UploadCard({ source, onResult }) {
 }
 
 export default function UploadPage() {
+  const location = useLocation()
   const [results, setResults] = useState([])
+
+  // Clear results when navigating away and back to this page
+  useEffect(() => {
+    setResults([])
+  }, [location.pathname])
 
   return (
     <div>
