@@ -22,7 +22,7 @@ export default function Dashboard() {
       .then(d => setRecords(d.results || []))
       .catch(() => setRecords([]))
       .finally(() => setLoading(false))
-  }, [location.pathname])
+  }, [])
 
   // Derived stats
   const total = records.length
