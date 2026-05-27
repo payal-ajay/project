@@ -65,7 +65,10 @@ def parse_sap_file(file_path):
 
     df.rename(columns=SAP_COLUMN_MAP, inplace=True)
     df.dropna(how="all", inplace=True)
-    df = df[~df.get("posting_date", pd.Series(dtype=str)).astype(str).str.contains("Summe|Total|Gesamt", na=False)]
+    df = df.reset_index(drop=True)  # ← fixes the index mismatch
+    posting_col = df.get("posting_date", pd.Series([""] * len(df), dtype=str))
+    mask = ~posting_col.astype(str).str.contains("Summe|Total|Gesamt", na=False)
+    df = df[mask].reset_index(drop=True)
 
     records = []
     for idx, row in df.iterrows():
