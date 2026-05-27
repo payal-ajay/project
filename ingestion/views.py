@@ -135,19 +135,19 @@ class TravelUploadView(APIView):
         batch = IngestionBatch.objects.create(
             tenant=tenant, source_type="TRAVEL", original_filename=file.name
         )
-        withtry:
-                result = run_review_agent(records)
-            except Exception as e:
-                logger.warning("LLM review agent failed: %s. Ingesting without AI summary.", e)
-                # Fallback: ingest without LLM analysis
-                result = {"records": records, "batch_summary": f"AI summary unavailable: {str(e)[:50]}"}
-            e=False, suffix=".json") as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
             for chunk in file.chunks():
                 tmp.write(chunk)
             tmp_path = tmp.name
         try:
             records, errors = parse_travel_json(tmp_path)
-            result = run_review_agent(records)
+            try:
+                result = run_review_agent(records)
+            except Exception as e:
+                logger.warning("LLM review agent failed: %s. Ingesting without AI summary.", e)
+                # Fallback: ingest without LLM analysis
+                result = {"records": records, "batch_summary": f"AI summary unavailable: {str(e)[:50]}"}
+            
             ingest_records(batch, result["records"])
             batch.row_count = len(records)
             batch.error_count = len(errors)
