@@ -1,11 +1,14 @@
 import os
 import tempfile
+import logging
 from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Tenant, IngestionBatch, RawRecord, EmissionRecord
 from .parsers import parse_sap_file, parse_utility_file, parse_travel_json
 from .llm.review_agent import run_review_agent
+
+logger = logging.getLogger(__name__)
 
 
 def get_or_create_default_tenant():
@@ -64,7 +67,13 @@ class SAPUploadView(APIView):
             tmp_path = tmp.name
         try:
             records, errors = parse_sap_file(tmp_path)
-            result = run_review_agent(records)
+            try:
+                result = run_review_agent(records)
+            except Exception as e:
+                logger.warning("LLM review agent failed: %s. Ingesting without AI summary.", e)
+                # Fallback: ingest without LLM analysis
+                result = {"records": records, "batch_summary": f"AI summary unavailable: {str(e)[:50]}"}
+            
             ingest_records(batch, result["records"])
             batch.row_count = len(records)
             batch.error_count = len(errors)
@@ -95,7 +104,13 @@ class UtilityUploadView(APIView):
             tmp_path = tmp.name
         try:
             records, errors = parse_utility_file(tmp_path)
-            result = run_review_agent(records)
+            try:
+                result = run_review_agent(records)
+            except Exception as e:
+                logger.warning("LLM review agent failed: %s. Ingesting without AI summary.", e)
+                # Fallback: ingest without LLM analysis
+                result = {"records": records, "batch_summary": f"AI summary unavailable: {str(e)[:50]}"}
+            
             ingest_records(batch, result["records"])
             batch.row_count = len(records)
             batch.error_count = len(errors)
@@ -120,7 +135,13 @@ class TravelUploadView(APIView):
         batch = IngestionBatch.objects.create(
             tenant=tenant, source_type="TRAVEL", original_filename=file.name
         )
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
+        withtry:
+                result = run_review_agent(records)
+            except Exception as e:
+                logger.warning("LLM review agent failed: %s. Ingesting without AI summary.", e)
+                # Fallback: ingest without LLM analysis
+                result = {"records": records, "batch_summary": f"AI summary unavailable: {str(e)[:50]}"}
+            e=False, suffix=".json") as tmp:
             for chunk in file.chunks():
                 tmp.write(chunk)
             tmp_path = tmp.name
