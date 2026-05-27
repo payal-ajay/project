@@ -41,14 +41,13 @@ UNIT_NORMALIZATION = {
     "KWH": "KWH", "MWH": "MWH",
 }
 
-# Energy type → scope mapping for multi-section ESG reports
 ENERGY_TYPE_MAP = {
-    "electricity (grid)": {"category": "Electricity", "scope": "SCOPE_2"},
-    "natural gas":        {"category": "Natural Gas", "scope": "SCOPE_1"},
+    "electricity (grid)":       {"category": "Electricity", "scope": "SCOPE_2"},
+    "natural gas":              {"category": "Natural Gas", "scope": "SCOPE_1"},
     "renewable energy (solar)": {"category": "Solar Energy", "scope": "SCOPE_2"},
     "renewable energy (wind)":  {"category": "Wind Energy", "scope": "SCOPE_2"},
-    "diesel (generators)": {"category": "Diesel", "scope": "SCOPE_1"},
-    "diesel (fleet)":      {"category": "Diesel Fleet", "scope": "SCOPE_1"},
+    "diesel (generators)":      {"category": "Diesel", "scope": "SCOPE_1"},
+    "diesel (fleet)":           {"category": "Diesel Fleet", "scope": "SCOPE_1"},
 }
 
 SCOPE_MAP = {
@@ -70,13 +69,18 @@ def parse_sap_date(date_str):
     return None
 
 
+def _is_multisection(df):
+    """Only check first 5 rows to detect section markers."""
+    first_col = df.iloc[:5, 0].astype(str)
+    return first_col.str.contains("SECTION|===", regex=True, na=False).any()
+
+
 def _parse_standard_sap(df):
-    """Parse a standard MB51/ME2M SAP flat file export."""
+    """Parse standard MB51/ME2M SAP flat file."""
     df = df.rename(columns=SAP_COLUMN_MAP)
     df = df.dropna(how="all")
     df = df.reset_index(drop=True)
 
-    # Filter out SAP footer/total rows safely
     if "posting_date" in df.columns:
         mask = ~df["posting_date"].astype(str).str.contains(
             "Summe|Total|Gesamt|===|\\*\\*\\*", na=False, regex=True
@@ -88,25 +92,30 @@ def _parse_standard_sap(df):
         row_errors = []
         rec = {"_row_index": idx, "_raw": row.to_dict()}
 
+        # Date — try posting date first, fall back to document date
         date_val = parse_sap_date(row.get("posting_date", ""))
         if not date_val:
-            row_errors.append(f"Row {idx}: unparseable date '{row.get('posting_date')}'")
+            row_errors.append(f"Row {idx}: missing posting date, using document date")
             date_val = parse_sap_date(row.get("document_date", ""))
         rec["activity_date"] = str(date_val) if date_val else None
 
-        qty_raw = str(row.get("quantity", "")).replace(",", ".").replace(" ", "")
+        # Quantity — handle European decimal comma
+        qty_raw = str(row.get("quantity", "")).replace(",", ".").replace(" ", "").strip()
         try:
             rec["quantity"] = float(qty_raw)
         except ValueError:
             row_errors.append(f"Row {idx}: invalid quantity '{qty_raw}'")
             rec["quantity"] = None
 
+        # Unit
         unit_raw = str(row.get("unit", "")).upper().strip()
         rec["unit"] = UNIT_NORMALIZATION.get(unit_raw, unit_raw or "KG")
 
+        # Plant → facility name
         plant = str(row.get("plant_code", "")).strip()
-        rec["facility_or_entity"] = PLANT_LOOKUP.get(plant, plant)
+        rec["facility_or_entity"] = PLANT_LOOKUP.get(plant, plant or "Unknown Plant")
 
+        # Material group → category + scope
         mat_grp = str(row.get("material_group", "")).strip().upper()
         mapping = MATERIAL_GROUP_MAP.get(mat_grp, {"category": "Unknown", "scope": "SCOPE_3"})
         rec["category"] = mapping["category"]
@@ -121,93 +130,12 @@ def _parse_standard_sap(df):
     return records, errors
 
 
-def _parse_multisection_esg(file_path):
-    """
-    Parse a multi-section SAP ESG report (ZESGRPT-style).
-    Detects sections by header rows and extracts Energy + GHG sections.
-    """
-    records, errors = [], []
-    row_idx = 0
-
-    try:
-        # Read raw without headers to detect sections
-        raw = pd.read_csv(file_path, header=None, dtype=str, encoding="utf-8-sig")
-    except Exception as e:
-        return [], [f"Could not read file: {e}"]
-
-    current_section = None
-    section_header = None
-    section_rows = []
-
-    for _, row in raw.iterrows():
-        first_cell = str(row.iloc[0]).strip()
-
-        # Detect section boundaries
-        if "SECTION 1" in first_cell and "ENERGY" in first_cell.upper():
-            current_section = "ENERGY"
-            section_header = None
-            section_rows = []
-            continue
-        elif "SECTION 2" in first_cell and "GHG" in first_cell.upper():
-            # Process previous energy section
-            if section_rows and section_header is not None:
-                r, e = _process_energy_section(section_header, section_rows, row_idx)
-                records.extend(r)
-                errors.extend(e)
-                row_idx += len(r)
-            current_section = "GHG"
-            section_header = None
-            section_rows = []
-            continue
-        elif first_cell.startswith("===") and current_section in ("ENERGY", "GHG"):
-            # New section started — process current
-            if section_rows and section_header is not None:
-                if current_section == "ENERGY":
-                    r, e = _process_energy_section(section_header, section_rows, row_idx)
-                else:
-                    r, e = _process_ghg_section(section_header, section_rows, row_idx)
-                records.extend(r)
-                errors.extend(e)
-                row_idx += len(r)
-            current_section = None
-            section_header = None
-            section_rows = []
-            continue
-
-        if current_section in ("ENERGY", "GHG"):
-            # Skip blank rows
-            if row.isna().all() or all(str(v).strip() in ("", "nan") for v in row):
-                continue
-            # First non-blank row after section header = column headers
-            if section_header is None:
-                section_header = [str(v).strip() for v in row]
-            else:
-                section_rows.append([str(v).strip() for v in row])
-
-    # Process last section
-    if section_rows and section_header is not None:
-        if current_section == "ENERGY":
-            r, e = _process_energy_section(section_header, section_rows, row_idx)
-        elif current_section == "GHG":
-            r, e = _process_ghg_section(section_header, section_rows, row_idx)
-        else:
-            r, e = [], []
-        records.extend(r)
-        errors.extend(e)
-
-    return records, errors
-
-
 def _process_energy_section(headers, rows, start_idx):
-    """Convert energy section rows to emission records."""
     records, errors = [], []
-    # Columns: Cost Center, Cost Center Name, Plant, Profit Center,
-    #          Energy Type, Unit, Jan, Feb, Mar, Apr, Q1 Total, Q2 YTD
     MONTH_COLS = {
         "Jan-2025": "2025-01-31", "Feb-2025": "2025-02-28",
         "Mar-2025": "2025-03-31", "Apr-2025": "2025-04-30",
     }
-
     for i, row in enumerate(rows):
         if len(row) < 6:
             continue
@@ -226,7 +154,6 @@ def _process_energy_section(headers, rows, start_idx):
                 qty = float(qty_raw)
             except ValueError:
                 continue
-
             records.append({
                 "_row_index": start_idx + i,
                 "_raw": row_dict,
@@ -240,18 +167,15 @@ def _process_energy_section(headers, rows, start_idx):
                 "source_type": "SAP",
                 "parse_errors": [],
             })
-
     return records, errors
 
 
 def _process_ghg_section(headers, rows, start_idx):
-    """Convert GHG emissions section rows to emission records."""
     records, errors = [], []
     MONTH_COLS = {
         "Jan-2025": "2025-01-31", "Feb-2025": "2025-02-28",
         "Mar-2025": "2025-03-31", "Apr-2025": "2025-04-30",
     }
-
     for i, row in enumerate(rows):
         if len(row) < 6:
             continue
@@ -271,10 +195,7 @@ def _process_ghg_section(headers, rows, start_idx):
                 qty = float(qty_raw)
             except ValueError:
                 continue
-
-            # Convert tCO2e to kg for consistency
             qty_kg = qty * 1000 if "tco2" in unit_raw.lower() else qty
-
             records.append({
                 "_row_index": start_idx + i,
                 "_raw": row_dict,
@@ -291,31 +212,73 @@ def _process_ghg_section(headers, rows, start_idx):
                 "source_type": "SAP",
                 "parse_errors": [],
             })
+    return records, errors
+
+
+def _parse_multisection_esg(file_path):
+    records, errors = [], []
+    row_idx = 0
+    try:
+        raw = pd.read_csv(file_path, header=None, dtype=str, encoding="utf-8-sig")
+    except Exception as e:
+        return [], [f"Could not read file: {e}"]
+
+    current_section = None
+    section_header = None
+    section_rows = []
+
+    for _, row in raw.iterrows():
+        first_cell = str(row.iloc[0]).strip()
+
+        if "SECTION 1" in first_cell and "ENERGY" in first_cell.upper():
+            current_section = "ENERGY"
+            section_header = None
+            section_rows = []
+            continue
+        elif "SECTION 2" in first_cell and "GHG" in first_cell.upper():
+            if section_rows and section_header is not None:
+                r, e = _process_energy_section(section_header, section_rows, row_idx)
+                records.extend(r); errors.extend(e); row_idx += len(r)
+            current_section = "GHG"
+            section_header = None
+            section_rows = []
+            continue
+        elif first_cell.startswith("===") and current_section in ("ENERGY", "GHG"):
+            if section_rows and section_header is not None:
+                fn = _process_energy_section if current_section == "ENERGY" else _process_ghg_section
+                r, e = fn(section_header, section_rows, row_idx)
+                records.extend(r); errors.extend(e); row_idx += len(r)
+            current_section = None
+            section_header = None
+            section_rows = []
+            continue
+
+        if current_section in ("ENERGY", "GHG"):
+            if row.isna().all() or all(str(v).strip() in ("", "nan") for v in row):
+                continue
+            if section_header is None:
+                section_header = [str(v).strip() for v in row]
+            else:
+                section_rows.append([str(v).strip() for v in row])
+
+    if section_rows and section_header is not None and current_section in ("ENERGY", "GHG"):
+        fn = _process_energy_section if current_section == "ENERGY" else _process_ghg_section
+        r, e = fn(section_header, section_rows, row_idx)
+        records.extend(r); errors.extend(e)
 
     return records, errors
 
 
-def _is_multisection(df):
-    """Detect if this is a multi-section ESG report vs standard MB51."""
-    first_col = df.iloc[:, 0].astype(str)
-    return first_col.str.contains("SECTION|===", regex=True).any()
-
-
 def parse_sap_file(file_path):
     """
-    Main entry point. Auto-detects file type:
-    - Standard SAP MB51/ME2M flat file → standard parser
-    - Multi-section SAP ESG report → section parser
+    Auto-detects SAP file type:
+    - Multi-section ESG report → section parser
+    - Standard MB51/ME2M flat file → standard parser
     """
-    errors = []
-
     try:
         for sep in [";", "\t", ","]:
             try:
-                df = pd.read_csv(
-                    file_path, sep=sep, encoding="utf-8-sig",
-                    dtype=str, header=None
-                )
+                df = pd.read_csv(file_path, sep=sep, encoding="utf-8-sig", dtype=str, header=None)
                 if len(df.columns) > 3:
                     break
             except Exception:
@@ -323,11 +286,10 @@ def parse_sap_file(file_path):
     except Exception as e:
         return [], [f"Could not read file: {str(e)}"]
 
-    # Auto-detect which parser to use
     if _is_multisection(df):
         return _parse_multisection_esg(file_path)
 
-    # Standard SAP parser — re-read with headers
+    # Re-read with headers for standard parser
     try:
         for sep in [";", "\t", ","]:
             try:
